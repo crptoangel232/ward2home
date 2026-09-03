@@ -1,66 +1,116 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Stethoscope } from 'lucide-react'
 
 export default function Login() {
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const navigate = useNavigate()
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
 
-  const handleLogin = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
-    setError('')
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
-      navigate('/dashboard')
+    setError(null)
+    setBusy(true)
+    try {
+      if (mode === 'signup') {
+        const { error } = await supabase.auth.signUp({ email, password })
+        if (error) throw error
+        setError('Account created. Check your email for a confirmation link, then sign in.')
+        setMode('signin')
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw error
+      }
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong')
+    } finally {
+      setBusy(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-sea-500 px-4 py-8">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <div className="flex justify-center mb-2">
-            <div className="w-14 h-14 bg-sea-500 rounded-xl flex items-center justify-center">
-              <Stethoscope size={28} className="text-white" />
-            </div>
-          </div>
-          <CardTitle className="text-2xl">Ward2Home</CardTitle>
-          <CardDescription>Sign in to manage patient follow-ups</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <Label htmlFor="email">Email</Label>
-              <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nurse@ward2home.com" required />
-            </div>
-            <div>
-              <Label htmlFor="password">Password</Label>
-              <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
-            </div>
-            {error && <p className="text-sm text-red-500 bg-red-50 p-3 rounded-md">{error}</p>}
-            <Button type="submit" className="w-full" size="lg" disabled={loading}>
-              {loading ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-          <p className="text-xs text-gray-400 text-center mt-4">
-            Ask your admin for login credentials
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+      <div className="w-full max-w-sm">
+        <div className="bg-white border border-gray-200 rounded-lg p-8">
+          <h1 className="text-xl font-semibold tracking-tight">Ward2Home</h1>
+          <p className="text-sm text-gray-500 mt-1 mb-6">
+            {mode === 'signin' ? 'Sign in to manage patient follow-ups.' : 'Create a nurse account.'}
           </p>
-        </CardContent>
-      </Card>
+
+          {error && (
+            <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-sea-500 focus:ring-1 focus:ring-sea-500"
+                placeholder="you@hospital.sl"
+              />
+            </div>
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-sea-500 focus:ring-1 focus:ring-sea-500"
+                placeholder="At least 6 characters"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full bg-sea-500 text-white text-sm font-medium rounded px-3 py-2.5 hover:bg-sea-600 disabled:opacity-50"
+            >
+              {busy ? 'Please wait' : mode === 'signin' ? 'Sign in' : 'Create account'}
+            </button>
+          </form>
+
+          <p className="text-sm text-gray-500 mt-5 text-center">
+            {mode === 'signin' ? (
+              <>
+                Need an account?{' '}
+                <button
+                  onClick={() => setMode('signup')}
+                  className="text-sea-600 font-medium hover:underline"
+                >
+                  Create one
+                </button>
+              </>
+            ) : (
+              <>
+                Already registered?{' '}
+                <button
+                  onClick={() => setMode('signin')}
+                  className="text-sea-600 font-medium hover:underline"
+                >
+                  Sign in
+                </button>
+              </>
+            )}
+          </p>
+        </div>
+        <p className="text-xs text-gray-400 text-center mt-4">
+          Post-discharge patient tracking. Sierra Leone.
+        </p>
+      </div>
     </div>
   )
 }

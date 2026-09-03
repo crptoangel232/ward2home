@@ -1,154 +1,185 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Textarea } from '@/components/ui/textarea'
-import { CheckCircle2 } from 'lucide-react'
 
 export default function Discharge() {
   const { session } = useAuth()
-  const navigate = useNavigate()
-  const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState(false)
-  const [error, setError] = useState('')
   const [form, setForm] = useState({
-    name: '', phone: '', family_phone: '', diagnosis: '',
-    discharge_date: '', risk_level: 'Medium', meds: '',
+    full_name: '',
+    phone: '',
+    family_phone: '',
+    diagnosis: '',
+    discharge_date: new Date().toISOString().split('T')[0],
+    risk_level: 'medium',
+    medications: '',
   })
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [patientLink, setPatientLink] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
-  const update = (key: string, val: string) => setForm(prev => ({ ...prev, [key]: val }))
+  function set(k: string, v: string) {
+    setForm((f) => ({ ...f, [k]: v }))
+  }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    setLoading(true)
-    setError('')
-
+    setError(null)
+    setBusy(true)
     try {
-      const userId = session?.user?.id
-
-      // 1. Insert patient
-      const { data: patient, error: pErr } = await supabase
-        .from('patients').insert({
-          name: form.name, phone: form.phone, family_phone: form.family_phone,
-          diagnosis: form.diagnosis, discharge_date: form.discharge_date,
-          risk_level: form.risk_level, created_by: userId,
-        }).select().single()
-
-      if (pErr) throw pErr
-
-      // 2. Insert discharge plan
-      const { error: dpErr } = await supabase
-        .from('discharge_plans').insert({
-          patient_id: patient.id, meds_json: { medications: form.meds },
-          created_by: userId,
+      const { data, error } = await supabase
+        .from('patients')
+        .insert({
+          created_by: session!.user.id,
+          full_name: form.full_name.trim(),
+          phone: form.phone.trim(),
+          family_phone: form.family_phone.trim() || null,
+          diagnosis: form.diagnosis.trim(),
+          risk_level: form.risk_level,
+          discharge_date: form.discharge_date,
+          medications: form.medications.trim() || null,
         })
-
-      if (dpErr) throw dpErr
-
-      // 3. Auto-create followups for day 3, 7, 14, 30
-      const dischargeDate = new Date(form.discharge_date)
-      const followupDays = [3, 7, 14, 30]
-      const followups = followupDays.map(day => {
-        const scheduled = new Date(dischargeDate)
-        scheduled.setDate(scheduled.getDate() + day)
-        return {
-          patient_id: patient.id,
-          day,
-          scheduled_date: scheduled.toISOString().split('T')[0],
-          status: 'PENDING',
-        }
-      })
-
-      const { error: fErr } = await supabase.from('followups').insert(followups)
-      if (fErr) throw fErr
-
-      setSuccess(true)
-      setTimeout(() => navigate('/dashboard'), 2000)
+        .select('access_token')
+        .single()
+      if (error) throw error
+      setPatientLink(`${window.location.origin}/p/${data.access_token}`)
     } catch (err: any) {
-      setError(err.message || 'Something went wrong')
+      setError(err.message || 'Could not save patient')
     } finally {
-      setLoading(false)
+      setBusy(false)
     }
   }
 
-  if (success) {
+  async function copyLink() {
+    await navigator.clipboard.writeText(patientLink!)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (patientLink) {
     return (
-      <div className="max-w-md mx-auto px-4 py-16 text-center">
-        <CheckCircle2 size={64} className="text-sea-500 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Patient Discharged</h2>
-        <p className="text-gray-500 text-sm">4 follow-ups scheduled (Day 3, 7, 14, 30). Redirecting to dashboard...</p>
-      </div>
+      <main className="max-w-xl mx-auto px-4 py-10">
+        <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
+          <h1 className="text-xl font-semibold tracking-tight">Patient registered</h1>
+          <p className="text-sm text-gray-500 mt-1.5">
+            {form.full_name} is now in the 30-day follow-up program. Follow-ups are scheduled for
+            days 3, 7, 14 and 30 after discharge.
+          </p>
+          <div className="mt-6 text-left">
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1.5">
+              Private patient link
+            </p>
+            <p className="text-xs text-gray-400 mb-2">
+              Send this to the patient (or a family member). They can use it to chat with you
+              without creating an account.
+            </p>
+            <div className="flex gap-2">
+              <input
+                readOnly
+                value={patientLink}
+                onFocus={(e) => e.currentTarget.select()}
+                className="flex-1 text-sm border border-gray-300 rounded px-3 py-2 bg-gray-50 truncate"
+              />
+              <button
+                onClick={copyLink}
+                className="text-sm px-4 py-2 bg-sea-500 text-white rounded hover:bg-sea-600 whitespace-nowrap"
+              >
+                {copied ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              setPatientLink(null)
+              setForm({
+                full_name: '',
+                phone: '',
+                family_phone: '',
+                diagnosis: '',
+                discharge_date: new Date().toISOString().split('T')[0],
+                risk_level: 'medium',
+                medications: '',
+              })
+            }}
+            className="mt-6 text-sm px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50"
+          >
+            Register another patient
+          </button>
+        </div>
+      </main>
     )
   }
 
+  const inputCls =
+    'w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:border-sea-500 focus:ring-1 focus:ring-sea-500'
+
   return (
-    <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-2xl font-bold mb-1">Discharge Patient</h1>
-      <p className="text-gray-500 text-sm mb-6">Register a patient and auto-schedule 30-day follow-ups</p>
+    <main className="max-w-xl mx-auto px-4 py-6">
+      <h1 className="text-xl font-semibold tracking-tight">Discharge patient</h1>
+      <p className="text-sm text-gray-500 mt-1 mb-5">
+        Registers the patient and schedules follow-ups on days 3, 7, 14 and 30.
+      </p>
 
-      <Card>
-        <CardContent className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="name">Patient Name *</Label>
-                <Input id="name" value={form.name} onChange={e => update('name', e.target.value)} required placeholder="Full name" />
-              </div>
-              <div>
-                <Label htmlFor="phone">Phone Number *</Label>
-                <Input id="phone" value={form.phone} onChange={e => update('phone', e.target.value)} required placeholder="+232 7X XXX XXX" />
-              </div>
-            </div>
+      {error && (
+        <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+          {error}
+        </div>
+      )}
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="family_phone">Family Contact Phone</Label>
-                <Input id="family_phone" value={form.family_phone} onChange={e => update('family_phone', e.target.value)} placeholder="+232 7X XXX XXX" />
-              </div>
-              <div>
-                <Label htmlFor="diagnosis">Diagnosis *</Label>
-                <Input id="diagnosis" value={form.diagnosis} onChange={e => update('diagnosis', e.target.value)} required placeholder="e.g. Schizophrenia" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="discharge_date">Discharge Date *</Label>
-                <Input id="discharge_date" type="date" value={form.discharge_date} onChange={e => update('discharge_date', e.target.value)} required />
-              </div>
-              <div>
-                <Label htmlFor="risk_level">Risk Level *</Label>
-                <Select id="risk_level" value={form.risk_level} onChange={e => update('risk_level', e.target.value)}>
-                  <option value="Low">Low</option>
-                  <option value="Medium">Medium</option>
-                  <option value="High">High</option>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="meds">Medications & Instructions</Label>
-              <Textarea id="meds" value={form.meds} onChange={e => update('meds', e.target.value)} placeholder="e.g. Haloperidol 5mg twice daily, Chlorpromazine 100mg at night" rows={3} />
-            </div>
-
-            {error && <p className="text-sm text-red-500 bg-red-50 p-3 rounded-md">{error}</p>}
-
-            <div className="flex gap-3 pt-2">
-              <Button type="submit" disabled={loading} className="flex-1">
-                {loading ? 'Discharging...' : 'Discharge & Schedule Follow-ups'}
-              </Button>
-              <Button type="button" variant="outline" onClick={() => navigate('/dashboard')}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-    </div>
+      <form onSubmit={handleSubmit} className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+          <input required value={form.full_name} onChange={(e) => set('full_name', e.target.value)}
+            className={inputCls} placeholder="Patient full name" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input required value={form.phone} onChange={(e) => set('phone', e.target.value)}
+              className={inputCls} placeholder="+232 7X XXX XXX" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Family contact <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input value={form.family_phone} onChange={(e) => set('family_phone', e.target.value)}
+              className={inputCls} placeholder="+232 7X XXX XXX" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Diagnosis</label>
+          <input required value={form.diagnosis} onChange={(e) => set('diagnosis', e.target.value)}
+            className={inputCls} placeholder="e.g. Schizophrenia" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Discharge date</label>
+            <input required type="date" value={form.discharge_date}
+              onChange={(e) => set('discharge_date', e.target.value)} className={inputCls} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Risk level</label>
+            <select value={form.risk_level} onChange={(e) => set('risk_level', e.target.value)}
+              className={inputCls}>
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Medications <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <textarea value={form.medications} onChange={(e) => set('medications', e.target.value)}
+            className={inputCls} rows={3}
+            placeholder="e.g. Haloperidol 5mg twice daily" />
+        </div>
+        <button type="submit" disabled={busy}
+          className="w-full bg-sea-500 text-white text-sm font-medium rounded px-3 py-2.5 hover:bg-sea-600 disabled:opacity-50">
+          {busy ? 'Saving' : 'Register patient'}
+        </button>
+      </form>
+    </main>
   )
 }
